@@ -55,6 +55,10 @@ services:
         value: "true"
       - key: PORT
         value: "8000"
+      - key: PRETRAINED_DIR
+        value: /app/data/pretrained
+      - key: REAL_MODEL_PATH
+        value: /app/data/pretrained/vit_fer2013_best.pt
     disk:
       name: mindtrack-data
       mountPath: /app/data
