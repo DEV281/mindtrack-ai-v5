@@ -249,3 +249,38 @@ Add this to your resume:
 Live URL: https://mindtrack-ai.vercel.app
 GitHub: https://github.com/YOUR_USERNAME/mindtrack-ai
 ```
+
+---
+
+## ML Model Deployment
+
+### Facial Model (ViT)
+The `vit_fer2013_best.pt` file (327MB) must be placed on the server:
+```bash
+# On Render: use persistent disk at /data/pretrained/
+# Set env var: REAL_MODEL_PATH=/data/pretrained/vit_fer2013_best.pt
+```
+
+### Voice Model (SpectrogramCNN)
+Train using `ml_training/colab_train_voice.ipynb` on Google Colab (free T4 GPU).
+Place the output `voice_cnn.pt` (~4MB) in `data/pretrained/`:
+```bash
+# Datasets (all free on Kaggle):
+#   - RAVDESS: kaggle datasets download uwrfkaggler/ravdess-emotional-speech-audio
+#   - CREMA-D: kaggle datasets download ejlok1/cremad
+#   - TESS:    kaggle datasets download ejlok1/toronto-emotional-speech-set-tess
+```
+
+### Temporal Model (Mamba SSM)
+Train using `ml_training/colab_train_temporal.ipynb` on Google Colab (free T4 GPU).
+Place the output `temporal_mamba.pt` (~1MB) in `data/pretrained/`:
+```bash
+# Uses same datasets as voice model
+# Extracts temporal features (energy, spectral centroid, pitch, ZCR) from sliding windows
+```
+
+### Environment Variables for Models
+```bash
+REAL_MODEL_PATH=/path/to/data/pretrained/vit_fer2013_best.pt
+# voice_cnn.pt and temporal_mamba.pt are auto-detected in the same directory
+```
