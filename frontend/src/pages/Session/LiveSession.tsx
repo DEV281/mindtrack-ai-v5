@@ -38,7 +38,13 @@ function LiveSession(): React.ReactElement {
   const { speak, settings: voiceSettings } = useSpeechOutput();
 
   const [showModelSelect, setShowModelSelect] = useState(false);
-  const [modelStatus, setModelStatus] = useState<{ real_model_loaded: boolean; status: string } | null>(null);
+  const [modelStatus, setModelStatus] = useState<{
+    real_model_loaded: boolean;
+    voice_model_loaded?: boolean;
+    temporal_model_loaded?: boolean;
+    all_models_real?: boolean;
+    status: string;
+  } | null>(null);
   const frameIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastAlertTimeRef = useRef(0);
   const sessionAnnouncedRef = useRef(false);
@@ -144,6 +150,12 @@ function LiveSession(): React.ReactElement {
               <span style={{ color: modelStatus.real_model_loaded ? '#52b788' : '#e9c46a', fontWeight: 600 }}>
                 {modelStatus.real_model_loaded ? 'Live AI Analysis' : 'Demo Mode'}
               </span>
+              {modelStatus.voice_model_loaded && (
+                <span style={{ color: '#52b788', fontSize: '0.65rem', marginLeft: 4 }}>• Voice</span>
+              )}
+              {modelStatus.temporal_model_loaded && (
+                <span style={{ color: '#52b788', fontSize: '0.65rem', marginLeft: 2 }}>• Temporal</span>
+              )}
             </div>
           )}
 
