@@ -1,53 +1,79 @@
 # MindTrack AI v5 — Training Results
 
-This directory contains evaluation artifacts produced by the ML training pipeline.
+This directory contains training output artifacts for all three ML models.
 
-## Files
+## Models
 
-| File | Description |
-|------|-------------|
-| `confusion_matrix.png` | 7×7 confusion matrix heatmap for the ViT facial emotion model on the held-out FER2013 test set. |
-| `classification_report.json` | Per-class precision, recall, F1, and support for all 7 emotion classes. |
-| `roc_auc_scores.json` | One-vs-rest ROC AUC for each emotion class. |
-| `training_curves.png` | Training loss and validation macro F1 over all epochs. |
-| `metrics_summary.json` | Complete metrics summary: best validation F1, test macro F1, test accuracy, per-class F1, training time, model parameters, and more. |
-| `splits/fer2013_splits.json` | Reproducible train/val/test split indices (seed 42). Loaded on subsequent runs to ensure identical splits. |
+### 1. Facial Emotion (ViT-Base on FER2013)
 
-## How These Files Are Generated
+| Metric | Value |
+|--------|-------|
+| **Architecture** | ViT-Base-Patch16-224 |
+| **Dataset** | FER2013 (35,887 images, 7 emotions) |
+| **Parameters** | 85.8M |
+| **Weights File** | `data/pretrained/vit_fer2013_best.pt` (327 MB) |
+| **Training Notebook** | `ml_training/colab_train.ipynb` |
 
-Run the training script:
+**Output Files:**
+- `confusion_matrix.png` — 7×7 confusion matrix heatmap
+- `classification_report.json` — Per-class precision, recall, F1
+- `training_curves.png` — Loss and F1 curves over epochs
+- `metrics_summary.json` — Final metrics summary
 
-```bash
-cd ml_training
-python train_facial_vit.py
-```
+### 2. Voice Emotion (SpectrogramCNN)
 
-Or use the Colab notebook: `ml_training/colab_train.ipynb`
+| Metric | Value |
+|--------|-------|
+| **Architecture** | 4-layer Conv2d + BatchNorm + AdaptiveAvgPool |
+| **Datasets** | RAVDESS (1,440) + CREMA-D (7,442) + TESS (2,800) = ~11,682 samples |
+| **Classes** | 8 (neutral, calm, happy, sad, angry, fearful, disgust, surprised) |
+| **Input** | Mel spectrogram (128 mels × 128 time steps) |
+| **Weights File** | `data/pretrained/voice_cnn.pt` (~4 MB) |
+| **Training Notebook** | `ml_training/colab_train_voice.ipynb` |
 
-All results are saved automatically at the end of training. The `metrics_summary.json` file is the proof that real training occurred — it contains timestamps, epoch counts, and measured metrics.
+**Output Files:**
+- `voice_confusion_matrix.png` — 8×8 confusion matrix
+- `voice_results.json` — Test accuracy and F1 scores
+- `voice_training_history.json` — Per-epoch training metrics
+- `voice_training_curves.png` — Loss and accuracy curves
 
-## Model Weights
+### 3. Temporal (Mamba SSM)
 
-The trained model checkpoint is saved to `data/pretrained/vit_fer2013_best.pt` (not in this directory). When this file exists, the application automatically uses the real ViT model for facial emotion recognition instead of demo mode.
+| Metric | Value |
+|--------|-------|
+| **Architecture** | 4-layer Selective State Space Model + FFN |
+| **Datasets** | Temporal features from RAVDESS + CREMA-D + TESS |
+| **Input** | Sequence of 10 windows × 7 features (energy, centroid, pitch, ZCR, bandwidth, F0, MFCC variance) |
+| **Classes** | 8 emotions |
+| **Weights File** | `data/pretrained/temporal_mamba.pt` (~1 MB) |
+| **Training Notebook** | `ml_training/colab_train_temporal.ipynb` |
 
-## What Is Real vs. Not Yet Trained
+**Output Files:**
+- `temporal_confusion_matrix.png` — 8×8 confusion matrix
+- `temporal_results.json` — Test accuracy and F1 scores
+- `temporal_training_history.json` — Per-epoch training metrics
+- `temporal_training_curves.png` — Loss and accuracy curves
 
-### ✅ Real (produces actual trained weights)
-- **Facial Emotion Model** — ViT-Base fine-tuned on FER2013 (7 emotion classes). All results in this directory are from real training.
+## Datasets (All Free)
 
-### 🔬 Architecturally Defined but Not Yet Trained
-- **Voice Stress Model** — Raw Spectrogram CNN. Requires DAIC-WOZ dataset (restricted access via AVEC challenge).
-- **Temporal Sequence Model** — Mamba SSM. Requires IEMOCAP dataset (academic license from USC).
-
-These models have their architectures defined in the codebase (`backend/app/models/`) but cannot be trained until the respective datasets are obtained. The application runs in demo mode for voice and temporal modalities until real weights are available.
+| Dataset | Samples | Source |
+|---------|---------|--------|
+| FER2013 | 35,887 images | [Kaggle](https://www.kaggle.com/datasets/msambare/fer2013) |
+| RAVDESS | 1,440 audio clips | [Kaggle](https://www.kaggle.com/datasets/uwrfkaggler/ravdess-emotional-speech-audio) |
+| CREMA-D | 7,442 audio clips | [Kaggle](https://www.kaggle.com/datasets/ejlok1/cremad) |
+| TESS | 2,800 audio clips | [Kaggle](https://www.kaggle.com/datasets/ejlok1/toronto-emotional-speech-set-tess) |
 
 ## Reproducing Results
 
-To verify reproducibility:
-
 ```bash
-cd ml_training
-python evaluate_saved_model.py --checkpoint ../data/pretrained/vit_fer2013_best.pt
-```
+# Download datasets
+python ml_training/download_datasets.py
 
-This loads the saved checkpoint and reruns full evaluation on the same held-out test set. Results should be identical to those produced during training (same seed, same split).
+# Train all models (requires GPU — use Colab notebooks for free T4)
+python ml_training/train_facial_vit.py
+python ml_training/train_voice.py
+python ml_training/train_temporal.py
+
+# Evaluate a saved model
+python ml_training/evaluate_saved_model.py --checkpoint data/pretrained/vit_fer2013_best.pt
+```
