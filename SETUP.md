@@ -188,3 +188,47 @@ brew services stop redis            # macOS
 | Session start fails | Ensure backend is running on port 8000 |
 | Docker build fails on M1/M2 Mac | Add `platform: linux/amd64` to services in `docker-compose.yml` |
 
+
+---
+
+## Training ML Models
+
+### 1. Facial Emotion Model (ViT-Base on FER2013)
+```bash
+# Google Colab (recommended — free T4 GPU):
+# Open ml_training/colab_train.ipynb
+
+# Local with GPU:
+cd ml_training && python train_facial_vit.py
+# Output: data/pretrained/vit_fer2013_best.pt (327MB)
+```
+
+### 2. Voice Emotion Model (SpectrogramCNN)
+```bash
+# Google Colab (recommended):
+# Open ml_training/colab_train_voice.ipynb
+
+# Local with GPU:
+cd ml_training
+python train_voice.py --ravdess ../data/datasets/ravdess --cremad ../data/datasets/cremad --tess ../data/datasets/tess
+# Output: data/pretrained/voice_cnn.pt (~4MB)
+```
+
+### 3. Temporal Model (Mamba SSM)
+```bash
+# Google Colab (recommended):
+# Open ml_training/colab_train_temporal.ipynb
+
+# Local with GPU:
+cd ml_training
+python train_temporal.py --ravdess ../data/datasets/ravdess --cremad ../data/datasets/cremad --tess ../data/datasets/tess
+# Output: data/pretrained/temporal_mamba.pt (~1MB)
+```
+
+### Download Datasets (All Free)
+```bash
+pip install kaggle
+kaggle datasets download -d uwrfkaggler/ravdess-emotional-speech-audio -p data/datasets/ravdess --unzip
+kaggle datasets download -d ejlok1/cremad -p data/datasets/cremad --unzip
+kaggle datasets download -d ejlok1/toronto-emotional-speech-set-tess -p data/datasets/tess --unzip
+```
