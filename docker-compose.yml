@@ -56,6 +56,8 @@ services:
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-30}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      PRETRAINED_DIR: /app/data/pretrained
+      REAL_MODEL_PATH: /app/data/pretrained/vit_fer2013_best.pt
     volumes:
       - ./data:/app/data
     healthcheck:
