@@ -47,3 +47,5 @@ imbalanced-learn>=0.12.2
 langdetect>=1.0.9
 deep-translator>=1.11.4
 opencv-python-headless>=4.9.0.80
+librosa>=0.10.0
+soundfile>=0.12.0

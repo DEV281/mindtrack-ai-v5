@@ -29,3 +29,4 @@ certifi
 groq>=0.9.0
 langdetect>=1.0.9
 deep-translator>=1.11.4
+soundfile>=0.12.0
