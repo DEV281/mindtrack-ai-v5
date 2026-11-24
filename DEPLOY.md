@@ -15,7 +15,7 @@
 ```bash
 git init
 git add .
-git commit -m "feat: MindTrack AI v4 initial release"
+git commit -m "feat: MindTrack AI v5 initial release"
 git branch -M main
 git remote add origin https://github.com/YOUR_USERNAME/mindtrack-ai.git
 git push -u origin main

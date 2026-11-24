@@ -1,6 +1,6 @@
 # MindTrack AI — Team Contributions Breakdown
 
-> **Project:** MindTrack AI v4 — AI-Powered Mental Health Stress Detection Platform
+> **Project:** MindTrack AI v5 — AI-Powered Mental Health Stress Detection Platform
 > **Stack:** FastAPI (Python) · React/TypeScript · PostgreSQL · Redis · Groq LLM
 
 ---

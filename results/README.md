@@ -1,4 +1,4 @@
-# MindTrack AI v4 — Training Results
+# MindTrack AI v5 — Training Results
 
 This directory contains evaluation artifacts produced by the ML training pipeline.
 

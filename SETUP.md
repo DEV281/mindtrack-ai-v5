@@ -1,4 +1,4 @@
-# MindTrack AI v4 — Setup Guide (Any System)
+# MindTrack AI v5 — Setup Guide (Any System)
 
 ## Prerequisites
 

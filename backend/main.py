@@ -1,4 +1,4 @@
-"""MindTrack AI v4 — FastAPI main application entry point."""
+"""MindTrack AI v5 — FastAPI main application entry point."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and shutdown lifecycle."""
-    logger.info("Starting MindTrack AI v4...")
+    logger.info("Starting MindTrack AI v5...")
 
     # Initialize database tables
     try:
@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Demo user seeding skipped: {e}")
 
-    logger.info("MindTrack AI v4 ready!")
+    logger.info("MindTrack AI v5 ready!")
     logger.info(f"  Frontend: {settings.FRONTEND_URL}")
     logger.info(f"  API Docs: http://localhost:8000/docs")
     logger.info(f"  Demo Login: {settings.DEMO_EMAIL} / {settings.DEMO_PASSWORD}")
@@ -64,14 +64,14 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    logger.info("Shutting down MindTrack AI v4...")
+    logger.info("Shutting down MindTrack AI v5...")
     await close_db()
     await close_redis()
 
 
 app = FastAPI(
     title="MindTrack AI",
-    version="4.0.0",
+    version="5.0.0",
     description="AI-Powered Mental Health Stress Detection Platform",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -112,7 +112,7 @@ async def health_check() -> dict:
     """Health check endpoint for Render/Railway and monitoring."""
     return {
         "status": "healthy",
-        "version": "4.0.0",
+        "version": "5.0.0",
         "service": "MindTrack AI",
         "groq": "configured" if os.environ.get("GROQ_API_KEY") else "missing",
         "db": "configured" if os.environ.get("DATABASE_URL") else "missing",

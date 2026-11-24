@@ -1,4 +1,4 @@
-# MindTrack AI v4 — Mental Health Stress Detection Platform
+# MindTrack AI v5 — Mental Health Stress Detection Platform
 
 <div align="center">
 
@@ -271,6 +271,6 @@ mindtrack-ai/
 ---
 
 <div align="center">
-  <strong>MindTrack AI v4.0</strong> — Built with ❤️ for mental health research<br/>
+  <strong>MindTrack AI v5.0</strong> — Built with ❤️ for mental health research<br/>
   <em>Powered by Groq • Real ML • Honest about what's real</em>
 </div>
