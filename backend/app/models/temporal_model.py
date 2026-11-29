@@ -1,4 +1,9 @@
-"""Mamba SSM (Selective State Space Model) for temporal pattern analysis."""
+"""Mamba SSM (Selective State Space Model) for temporal pattern analysis.
+
+Architecture matches ml_training/train_temporal.py exactly.
+When trained weights are available (temporal_mamba.pt), the model uses them.
+Otherwise, it falls back to heuristic analysis.
+"""
 
 from __future__ import annotations
 
@@ -10,147 +15,144 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+EMOTION_LABELS = ["neutral", "calm", "happy", "sad", "angry", "fearful", "disgust", "surprised"]
 
-class MambaSSMBlock:
-    """Mamba Selective State Space Model implementation in PyTorch.
 
-    Parameters:
-        d_model: input dimension  
-        state_dim: SSM state dimension (N)
-        d_inner: inner expansion dimension
-        dt_rank: rank for dt projection (auto = ceil(d_model/16))
+class TemporalAnalysisModel:
+    """Temporal analysis using Mamba SSM for sequence patterns.
+
+    When trained weights are loaded, runs real Mamba SSM inference on
+    temporal feature sequences extracted from analysis history.
+
+    When no weights are available, falls back to heuristic analysis.
     """
 
-    def __init__(self, d_model: int = 64, state_dim: int = 16, d_inner: int = 32, dt_rank: str = "auto"):
-        self.d_model = d_model
-        self.state_dim = state_dim
-        self.d_inner = d_inner
-        self.dt_rank = math.ceil(d_model / 16) if dt_rank == "auto" else int(dt_rank)
+    def __init__(self) -> None:
         self.model = None
         self.device = "cpu"
         self._loaded = False
+        self._weights_loaded = False
 
-    def build(self) -> None:
-        """Build the Mamba SSM PyTorch model."""
+    def load(self, weights_path: Optional[str] = None) -> None:
+        """Build the Mamba SSM model and optionally load trained weights."""
         try:
             import torch
             import torch.nn as nn
 
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-            class SelectiveSSM(nn.Module):
-                """Selective State Space Model core."""
+            # ── SSM Block (matches training script) ──
 
-                def __init__(self, d_model, state_dim, d_inner, dt_rank):
+            class SelectiveScanSSM(nn.Module):
+                def __init__(self, d_model=64, state_dim=16, dt_rank=8, d_inner=32):
                     super().__init__()
                     self.d_model = d_model
                     self.state_dim = state_dim
-                    self.d_inner = d_inner
                     self.dt_rank = dt_rank
+                    self.d_inner = d_inner
 
-                    # Input projection
-                    self.in_proj = nn.Linear(d_model, d_inner * 2, bias=False)
-
-                    # SSM parameters
+                    self.in_proj = nn.Linear(d_model, d_inner * 2)
                     self.A_log = nn.Parameter(torch.randn(d_inner, state_dim))
                     self.D = nn.Parameter(torch.ones(d_inner))
-
-                    # Selective projections (data-dependent)
                     self.x_proj = nn.Linear(d_inner, dt_rank + state_dim * 2, bias=False)
                     self.dt_proj = nn.Linear(dt_rank, d_inner, bias=True)
+                    self.out_proj = nn.Linear(d_inner, d_model)
+                    self.norm = nn.LayerNorm(d_inner)
 
-                    # Output projection
-                    self.out_proj = nn.Linear(d_inner, d_model, bias=False)
-
-                    # Layer norm
-                    self.norm = nn.LayerNorm(d_model)
+                    # HiPPO init
+                    A = torch.arange(1, state_dim + 1, dtype=torch.float32).unsqueeze(0).repeat(d_inner, 1)
+                    self.A_log.data = torch.log(A)
+                    nn.init.uniform_(self.dt_proj.bias, -4.0, -2.0)
 
                 def forward(self, x):
-                    """Forward pass: x shape (batch, seq_len, d_model)."""
                     batch, seq_len, _ = x.shape
-                    residual = x
-                    x = self.norm(x)
-
-                    # Project input
                     xz = self.in_proj(x)
-                    x_branch, z = xz.chunk(2, dim=-1)
-
-                    # Compute SSM parameters (data-dependent / selective)
-                    x_dbl = self.x_proj(x_branch)
-                    dt, B, C = torch.split(x_dbl, [self.dt_rank, self.state_dim, self.state_dim], dim=-1)
+                    x_in, z = xz.chunk(2, dim=-1)
+                    x_dbl = self.x_proj(x_in)
+                    dt, B, C = x_dbl.split([self.dt_rank, self.state_dim, self.state_dim], dim=-1)
                     dt = torch.softplus(self.dt_proj(dt))
-
-                    # Discretize: A_bar = exp(A * dt)
-                    A = -torch.exp(self.A_log.float())
-                    # Selective scan (simplified linear recurrence)
-                    y = self._selective_scan(x_branch, dt, A, B, C)
-
-                    # Residual with D
-                    y = y + self.D * x_branch
-
-                    # Gate with z
-                    y = y * torch.selu(z)
-
-                    # Output projection
+                    A = -torch.exp(self.A_log)
+                    y = self._selective_scan(x_in, dt, A, B, C)
+                    y = self.norm(y)
+                    y = y * torch.silu(z)
                     y = self.out_proj(y)
-                    return y + residual
+                    return y
 
-                def _selective_scan(self, x, dt, A, B, C):
-                    """Simplified selective scan with linear recurrence."""
-                    batch, seq_len, d_inner = x.shape
-                    state_dim = self.state_dim
-
-                    # Initialize hidden state
-                    h = torch.zeros(batch, d_inner, state_dim, device=x.device, dtype=x.dtype)
+                def _selective_scan(self, u, dt, A, B, C):
+                    batch, seq_len, d_inner = u.shape
+                    h = torch.zeros(batch, d_inner, self.state_dim, device=u.device, dtype=u.dtype)
                     outputs = []
-
                     for t in range(seq_len):
-                        # State update: h = A_bar * h + B_bar * x
-                        dt_t = dt[:, t, :].unsqueeze(-1)  # (batch, d_inner, 1)
-                        A_bar = torch.exp(A.unsqueeze(0) * dt_t)  # (batch, d_inner, state_dim)
-                        B_t = B[:, t, :].unsqueeze(1).expand(-1, d_inner, -1)  # (batch, d_inner, state_dim)
-                        x_t = x[:, t, :].unsqueeze(-1)  # (batch, d_inner, 1)
-
-                        h = A_bar * h + B_t * x_t
-                        # Output: y = C * h
-                        C_t = C[:, t, :].unsqueeze(1).expand(-1, d_inner, -1)  # (batch, d_inner, state_dim)
-                        y_t = (C_t * h).sum(dim=-1)  # (batch, d_inner)
+                        dt_t = dt[:, t, :].unsqueeze(-1)
+                        A_bar = torch.exp(A.unsqueeze(0) * dt_t)
+                        B_t = B[:, t, :].unsqueeze(1).expand(-1, d_inner, -1)
+                        B_bar = dt_t * B_t
+                        u_t = u[:, t, :].unsqueeze(-1)
+                        h = A_bar * h + B_bar * u_t
+                        C_t = C[:, t, :].unsqueeze(1).expand(-1, d_inner, -1)
+                        y_t = (C_t * h).sum(dim=-1) + self.D * u[:, t, :]
                         outputs.append(y_t)
-
                     return torch.stack(outputs, dim=1)
 
-            class TemporalMambaModel(nn.Module):
-                """Full temporal analysis model with Mamba SSM backbone."""
+            # ── Full Model (matches training script MambaTemporalModel) ──
 
-                def __init__(self, input_dim=7, d_model=64, state_dim=16, d_inner=32, dt_rank=4, num_layers=2):
+            class MambaTemporalModel(nn.Module):
+                def __init__(self, input_dim=7, d_model=64, n_layers=4, state_dim=16, d_inner=32, num_classes=8):
                     super().__init__()
                     self.input_proj = nn.Linear(input_dim, d_model)
-                    self.mamba_layers = nn.ModuleList([
-                        SelectiveSSM(d_model, state_dim, d_inner, dt_rank)
-                        for _ in range(num_layers)
+                    self.pos_embed = nn.Parameter(torch.randn(1, 100, d_model) * 0.02)
+                    self.layers = nn.ModuleList([
+                        nn.ModuleDict({
+                            "ssm": SelectiveScanSSM(d_model, state_dim, d_inner=d_inner),
+                            "norm": nn.LayerNorm(d_model),
+                            "ffn": nn.Sequential(
+                                nn.Linear(d_model, d_model * 4),
+                                nn.GELU(),
+                                nn.Dropout(0.1),
+                                nn.Linear(d_model * 4, d_model),
+                                nn.Dropout(0.1),
+                            ),
+                            "ffn_norm": nn.LayerNorm(d_model),
+                        })
+                        for _ in range(n_layers)
                     ])
-                    self.output_head = nn.Sequential(
+                    self.head = nn.Sequential(
                         nn.LayerNorm(d_model),
-                        nn.Linear(d_model, 32),
-                        nn.ReLU(),
-                        nn.Linear(32, 3),  # stress, trend_up, trend_down
+                        nn.Linear(d_model, 128),
+                        nn.GELU(),
+                        nn.Dropout(0.2),
+                        nn.Linear(128, num_classes),
                     )
 
                 def forward(self, x):
+                    batch, seq_len, _ = x.shape
                     x = self.input_proj(x)
-                    for layer in self.mamba_layers:
-                        x = layer(x)
-                    # Use last time step
-                    x = x[:, -1, :]
-                    return self.output_head(x)
+                    x = x + self.pos_embed[:, :seq_len, :]
+                    for layer in self.layers:
+                        residual = x
+                        x = layer["norm"](x)
+                        x = layer["ssm"](x) + residual
+                        residual = x
+                        x = layer["ffn_norm"](x)
+                        x = layer["ffn"](x) + residual
+                    x = x.mean(dim=1)
+                    return self.head(x)
 
-            self.model = TemporalMambaModel(
-                input_dim=7,
-                d_model=self.d_model,
-                state_dim=self.state_dim,
-                d_inner=self.d_inner,
-                dt_rank=self.dt_rank,
+            self.model = MambaTemporalModel(
+                input_dim=7, d_model=64, n_layers=4,
+                state_dim=16, d_inner=32, num_classes=8,
             ).to(self.device)
+
+            if weights_path:
+                try:
+                    state_dict = torch.load(weights_path, map_location=self.device, weights_only=True)
+                    self.model.load_state_dict(state_dict)
+                    self._weights_loaded = True
+                    logger.info(f"Temporal Mamba SSM weights loaded from {weights_path}")
+                except Exception as e:
+                    logger.warning(f"Could not load temporal weights: {e}")
+                    self._weights_loaded = False
+
             self.model.eval()
             self._loaded = True
             logger.info(f"Temporal Mamba SSM model built on {self.device}")
@@ -159,38 +161,11 @@ class MambaSSMBlock:
             logger.warning(f"Mamba SSM model not available: {e}")
             self._loaded = False
 
-
-class TemporalAnalysisModel:
-    """Temporal analysis using Mamba SSM for sequence patterns.
-
-    Input: sequence of last 5 analysis frames (stress, anxiety, stability, etc.)
-    Output: temporal stress score, pattern classification, trend direction.
-    """
-
-    def __init__(self) -> None:
-        self.mamba = MambaSSMBlock(d_model=64, state_dim=16, d_inner=32, dt_rank="auto")
-        self._loaded = False
-
-    def load(self, weights_path: Optional[str] = None) -> None:
-        """Load the temporal model."""
-        self.mamba.build()
-
-        if weights_path and self.mamba.model is not None:
-            try:
-                import torch
-                state_dict = torch.load(weights_path, map_location=self.mamba.device, weights_only=True)
-                self.mamba.model.load_state_dict(state_dict)
-                logger.info(f"Temporal model weights loaded from {weights_path}")
-            except Exception as e:
-                logger.warning(f"Could not load temporal weights: {e}")
-
-        self._loaded = self.mamba._loaded
-
     def predict(self, history: List[Dict]) -> Dict:
         """Predict temporal patterns from analysis history.
 
         Args:
-            history: List of recent analysis results (at least 5 frames).
+            history: List of recent analysis results (at least 2 frames).
 
         Returns:
             Dict with temporal_stress, pattern, trend.
@@ -198,9 +173,9 @@ class TemporalAnalysisModel:
         if len(history) < 2:
             return {"temporal_stress": 0.0, "pattern": "insufficient_data", "trend": "stable"}
 
-        # Extract feature sequences
+        # Extract feature sequences (7 dims matching training)
         features = []
-        for frame in history[-5:]:
+        for frame in history[-10:]:  # up to 10 frames
             feat = [
                 frame.get("stress", 0) / 100.0,
                 frame.get("anxiety", 0) / 100.0,
@@ -212,36 +187,47 @@ class TemporalAnalysisModel:
             ]
             features.append(feat)
 
-        # Pad to 5 frames if needed
+        # Pad to at least 5 frames
         while len(features) < 5:
             features.insert(0, features[0])
 
         feature_array = np.array(features, dtype=np.float32)
 
-        # Run Mamba inference if available
-        if self._loaded and self.mamba.model is not None:
+        # Run Mamba SSM inference if model + weights available
+        if self._loaded and self._weights_loaded and self.model is not None:
             try:
                 import torch
-                x = torch.from_numpy(feature_array).unsqueeze(0).to(self.mamba.device)
+                x = torch.from_numpy(feature_array).unsqueeze(0).to(self.device)
                 with torch.no_grad():
-                    output = self.mamba.model(x)[0].cpu().numpy()
+                    logits = self.model(x)[0].cpu().numpy()
 
-                temporal_stress = float(np.clip(output[0] * 100, 0, 100))
-                trend_score = float(output[1] - output[2])
+                probs = np.exp(logits) / np.sum(np.exp(logits))  # softmax
+                pred_class = int(np.argmax(probs))
+                pred_emotion = EMOTION_LABELS[pred_class]
 
-                if trend_score > 0.2:
+                # Stress-related classes: sad(3), angry(4), fearful(5), disgust(6)
+                stress_indices = [3, 4, 5, 6]
+                temporal_stress = float(sum(probs[i] for i in stress_indices)) * 100
+
+                pattern = self._classify_pattern(feature_array)
+
+                # Trend from feature sequence
+                stresses = feature_array[:, 0]
+                diff = np.diff(stresses)
+                mean_diff = float(np.mean(diff)) if len(diff) > 0 else 0
+                if mean_diff > 0.05:
                     trend = "increasing"
-                elif trend_score < -0.2:
+                elif mean_diff < -0.05:
                     trend = "decreasing"
                 else:
                     trend = "stable"
 
-                pattern = self._classify_pattern(feature_array)
-
                 return {
-                    "temporal_stress": temporal_stress,
+                    "temporal_stress": min(100, temporal_stress),
                     "pattern": pattern,
                     "trend": trend,
+                    "predicted_emotion": pred_emotion,
+                    "confidence": float(probs[pred_class]),
                 }
             except Exception as e:
                 logger.warning(f"Temporal inference error: {e}")
@@ -251,7 +237,7 @@ class TemporalAnalysisModel:
 
     def _classify_pattern(self, features: np.ndarray) -> str:
         """Classify the temporal pattern from feature sequence."""
-        stresses = features[:, 0]  # First column is stress
+        stresses = features[:, 0]
         if len(stresses) < 2:
             return "stable"
 
