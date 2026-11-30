@@ -141,9 +141,10 @@ class VoiceStressModel:
             try:
                 import torch
 
-                # Prepare spectrogram input
-                spec_tensor = torch.from_numpy(spectrogram).float().unsqueeze(0).unsqueeze(0)
-                # Resize to fixed size
+                # Prepare spectrogram input — normalize to match training
+                spec_normalized = (spectrogram - spectrogram.mean()) / (spectrogram.std() + 1e-6)
+                spec_tensor = torch.from_numpy(spec_normalized).float().unsqueeze(0).unsqueeze(0)
+                # Resize to fixed size (128x128 matches training)
                 spec_tensor = torch.nn.functional.interpolate(spec_tensor, size=(128, 128), mode="bilinear", align_corners=False)
                 spec_tensor = spec_tensor.to(self.device)
 
