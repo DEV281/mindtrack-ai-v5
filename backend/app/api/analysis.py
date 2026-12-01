@@ -122,13 +122,13 @@ def _generate_demo_analysis(frame_count: int) -> dict:
 
 @router.get("/analysis/model-status")
 async def get_model_status() -> dict:
-    """Return the current model status for frontend display."""
+    """Return the current model status for all models."""
     try:
         analyzer = _get_face_analyzer()
-        return analyzer.get_model_status()
+        facial_status = analyzer.get_model_status()
     except Exception as e:
-        logger.warning("Failed to get model status: %s", e)
-        return {
+        logger.warning("Failed to get facial model status: %s", e)
+        facial_status = {
             "real_model_loaded": False,
             "model_name": "ViT-Base-Patch16-224",
             "dataset": "FER2013",
@@ -136,6 +136,23 @@ async def get_model_status() -> dict:
             "status": "error",
             "message": str(e),
         }
+
+    # Check voice and temporal models
+    facial, voice, temporal = _get_models()
+    voice_loaded = voice is not None and getattr(voice, "_loaded", False)
+    temporal_loaded = temporal is not None and getattr(temporal, "_loaded", False)
+
+    return {
+        **facial_status,
+        "voice_model_loaded": voice_loaded,
+        "voice_model_name": "SpectrogramCNN" if voice_loaded else "SpectrogramCNN (no weights)",
+        "voice_dataset": "RAVDESS + CREMA-D + TESS",
+        "voice_classes": 8,
+        "temporal_model_loaded": temporal_loaded,
+        "temporal_model_name": "Mamba SSM" if temporal_loaded else "Mamba SSM (no weights)",
+        "temporal_dataset": "RAVDESS + CREMA-D + TESS (temporal)",
+        "all_models_real": facial_status.get("real_model_loaded", False) and voice_loaded and temporal_loaded,
+    }
 
 
 async def _run_real_analysis(video_b64: Optional[str], audio_b64: Optional[str], temporal_buffer: list) -> dict:
@@ -254,10 +271,21 @@ async def websocket_analysis(websocket: WebSocket, session_id: str):
             video_b64 = data.get("video_frame")
             audio_b64 = data.get("audio_chunk")
 
-            # Run analysis — try real FaceAnalyzer first, fall back to demo
+            # Run analysis — use real models where available, demo for the rest
             analyzer = _get_face_analyzer()
+            facial, voice, temporal = _get_models()
+            voice_loaded = voice is not None and getattr(voice, "_loaded", False)
+            temporal_loaded = temporal is not None and getattr(temporal, "_loaded", False)
+
+            # Start with demo baseline
+            result = _generate_demo_analysis(frame_count)
+            result["demo_mode"] = True
+            result["real_facial"] = False
+            result["real_voice"] = False
+            result["real_temporal"] = False
+
+            # Facial analysis (real ViT model)
             if analyzer.real_model and video_b64:
-                # Real ViT model is loaded — use it for facial analysis
                 try:
                     import cv2
                     frame_bytes = base64.b64decode(video_b64)
@@ -265,32 +293,47 @@ async def websocket_analysis(websocket: WebSocket, session_id: str):
                     frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                     if frame is not None:
                         face_result = analyzer.analyze(frame)
-                        # Merge real facial results with demo data for voice/temporal
-                        demo = _generate_demo_analysis(frame_count)
-                        result = {
-                            **demo,
-                            "emotions": face_result.get("emotions", demo["emotions"]),
-                            "dominant_emotion": face_result.get("dominant_emotion", demo["dominant_emotion"]),
-                            "stress": face_result.get("stress", demo["stress"]),
-                            "confidence": face_result.get("confidence", demo["confidence"]),
-                            "demo_mode": False,
-                            "real_facial": True,
-                        }
-                    else:
-                        result = _generate_demo_analysis(frame_count)
-                        result["demo_mode"] = True
+                        result["emotions"] = face_result.get("emotions", result["emotions"])
+                        result["dominant_emotion"] = face_result.get("dominant_emotion", result["dominant_emotion"])
+                        result["stress"] = face_result.get("stress", result["stress"])
+                        result["confidence"] = face_result.get("confidence", result["confidence"])
+                        result["real_facial"] = True
                 except Exception as e:
-                    logger.warning("FaceAnalyzer error, falling back to demo: %s", e)
-                    result = _generate_demo_analysis(frame_count)
-                    result["demo_mode"] = True
-            elif not _demo_mode:
-                result = await _run_real_analysis(video_b64, audio_b64, temporal_buffer)
-                temporal_buffer.append(result)
-                if len(temporal_buffer) > 20:
-                    temporal_buffer = temporal_buffer[-10:]
-            else:
-                result = _generate_demo_analysis(frame_count)
-                result["demo_mode"] = True
+                    logger.warning("FaceAnalyzer error: %s", e)
+
+            # Voice analysis (real SpectrogramCNN model)
+            if voice_loaded and audio_b64:
+                try:
+                    audio_bytes = base64.b64decode(audio_b64)
+                    voice_result = voice.predict(audio_bytes)
+                    if voice_result.get("confidence", 0) > 0.1:
+                        result["voice_freq"] = voice_result.get("frequency", result["voice_freq"])
+                        result["voice_amplitude"] = voice_result.get("amplitude", result["voice_amplitude"])
+                        result["real_voice"] = True
+                        # Blend voice stress into overall
+                        voice_stress = voice_result.get("stress_score", 0)
+                        result["stress"] = result["stress"] * 0.6 + voice_stress * 0.4
+                except Exception as e:
+                    logger.warning("Voice model error: %s", e)
+
+            # Temporal analysis (real Mamba SSM model)
+            if temporal_loaded and len(temporal_buffer) >= 2:
+                try:
+                    temporal_result = temporal.predict(temporal_buffer[-5:])
+                    if temporal_result.get("pattern") != "insufficient_data":
+                        result["real_temporal"] = True
+                        temporal_stress = temporal_result.get("temporal_stress", 0)
+                        result["stress"] = result["stress"] * 0.7 + temporal_stress * 0.3
+                except Exception as e:
+                    logger.warning("Temporal model error: %s", e)
+
+            # Update demo_mode flag — false only if at least facial is real
+            result["demo_mode"] = not result["real_facial"]
+
+            # Store for temporal buffer
+            temporal_buffer.append(result)
+            if len(temporal_buffer) > 20:
+                temporal_buffer = temporal_buffer[-10:]
 
             frame_count += 1
 
