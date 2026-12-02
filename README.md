@@ -50,9 +50,9 @@
 | Full-Stack Web App | ✅ **Real** | React 18 + TypeScript, FastAPI, PostgreSQL, Redis, JWT auth, OAuth2, OTP |
 | AI Chatbot (Groq) | ✅ **Real** | Every response generated live via Groq API — no canned replies |
 | Facial Emotion Model (ViT) | ✅ **Real** | Trained on FER2013 with confusion matrix, classification report, ROC AUC |
+| Voice Emotion Model (CNN) | ✅ **Real** | SpectrogramCNN trained on RAVDESS + CREMA-D + TESS (~11.6K audio samples) |
+| Temporal Model (Mamba SSM) | ✅ **Real** | 4-layer Selective State Space Model trained on temporal audio features |
 | Safety Filter | ✅ **Real** | 20 crisis keywords, biometric triggers, deterministic — zero AI dependency |
-| Voice Stress Model | 🔬 **Demo** | Architecture defined (Raw Spectrogram CNN). Needs DAIC-WOZ dataset (restricted) |
-| Temporal Sequence Model | 🔬 **Demo** | Architecture defined (Mamba SSM). Needs IEMOCAP dataset (USC license) |
 
 > Demo-mode modalities show a clear **"Demo Mode"** indicator in the UI. Synthetic data is never presented as real model output.
 
